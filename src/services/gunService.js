@@ -1,4 +1,5 @@
 import { apiClient, IS_SUPABASE } from '../config/api'
+import { clearCache } from '../utils/queryCache'
 
 // ---------------------------------------------------------------------------
 // Normalizer — standardizes product shape whether received from Supabase
@@ -86,6 +87,10 @@ class GunService {
         queryParts.push(`limit=${params.limit}`)
       }
 
+      if (params.offset) {
+        queryParts.push(`offset=${params.offset}`)
+      }
+
       const queryString = queryParts.join('&')
       const data = await apiClient.get(`/rest/v1/products?${queryString}`)
       const list = Array.isArray(data) ? data.map(normalizeProduct) : []
@@ -146,6 +151,7 @@ class GunService {
       const res = await apiClient.post('/rest/v1/products', payload, {
         headers: { Prefer: 'return=representation' },
       })
+      clearCache('guns:')
       const created = Array.isArray(res) ? res[0] : res
       return { success: true, data: normalizeProduct(created) }
     }
@@ -179,6 +185,7 @@ class GunService {
       const res = await apiClient.patch(`/rest/v1/products?id=eq.${id}`, payload, {
         headers: { Prefer: 'return=representation' },
       })
+      clearCache('guns:')
       const updated = Array.isArray(res) ? res[0] : res
       return { success: true, data: normalizeProduct(updated) }
     }
@@ -201,6 +208,7 @@ class GunService {
   async deleteGun(id) {
     if (IS_SUPABASE) {
       await apiClient.delete(`/rest/v1/products?id=eq.${id}`)
+      clearCache('guns:')
       return { success: true }
     }
     return apiClient.delete(`/api/v1/recipes/${id}`)

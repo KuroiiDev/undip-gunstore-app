@@ -1,18 +1,21 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { RefreshCw, Plus, Loader, AlertCircle, PackageOpen } from 'lucide-react'
-import { useGuns } from '../hooks/useGuns'
+import { useGuns, useGunById } from '../hooks/useGuns'
 import GUNS_LOCAL from '../data/guns'
 import GunCard from '../components/gun/GunCard'
 import GunDetail from '../components/gun/GunDetail'
 import AdvancedFilter from '../components/common/AdvancedFilter'
 import ConfirmModal from '../components/modals/ConfirmModal'
 import gunService from '../services/gunService'
+import { clearCache } from '../utils/queryCache'
 import {
   matchesSearch,
   matchesCategory,
   sortItems,
-  extractCategories,
 } from '../utils/helpers'
+
+const PAGE_SIZE = 6
+const FIXED_CATEGORIES = ['All', 'Pistol', 'Rifle', 'Shotgun', 'Submachine Gun']
 
 /**
  * Catalog page — the main product listing.
@@ -21,29 +24,68 @@ import {
  *   1. Live API via useGuns()
  *   2. Local static array (GUNS_LOCAL) when the API is unreachable
  *
- * Features: search, category filter, sort, CRUD actions, detail modal.
+ * Features: search, category filter, sort, CRUD actions, detail modal, server pagination, share link.
  */
 export default function Catalog({ onNavigate }) {
-  // ---- API data ----
-  const { guns: apiGuns, loading, error, refetch } = useGuns({ limit: 50 })
+  // ---- filters / sort / pagination state ----
+  const [search, setSearch] = useState('')
+  const [activeCategory, setActiveCategory] = useState('All')
+  const [page, setPage] = useState(1)
+  const [sortKey, setSortKey] = useState('name')
+  const [sortOrder, setSortOrder] = useState('asc')
   const [useLocal, setUseLocal] = useState(false)
+
+  // Fixed categories list ensures categories remain available across all pages
+  const categories = FIXED_CATEGORIES
+
+  // Reset page to 1 when search or category changes
+  const handleSearch = (val) => {
+    setSearch(val)
+    setPage(1)
+  }
+
+  const handleCategory = (cat) => {
+    setActiveCategory(cat)
+    setPage(1)
+  }
+
+  // ---- API data ----
+  const { guns: apiGuns, loading, error, refetch } = useGuns({
+    search,
+    category: activeCategory,
+    limit: PAGE_SIZE + 1,
+    offset: (page - 1) * PAGE_SIZE,
+  })
+
+  // Clear query cache on refresh before refetching
+  const handleRefetch = () => {
+    clearCache('guns:')
+    refetch()
+  }
+
+  const isLocal = useLocal || (error && apiGuns.length === 0)
+
+  // Filtered local catalog for fallback
+  const localFiltered = useMemo(() => {
+    if (!isLocal) return []
+    const enriched = GUNS_LOCAL.map((g, i) => ({ ...g, id: g.id || `local-${i}` }))
+    return enriched.filter(
+      (g) => matchesSearch(g, search) && matchesCategory(g, activeCategory),
+    )
+  }, [isLocal, search, activeCategory])
+
+  const hasNext = isLocal
+    ? page * PAGE_SIZE < localFiltered.length
+    : apiGuns.length > PAGE_SIZE
 
   // Decide data source
   const rawGuns = useMemo(() => {
-    if (useLocal || (error && apiGuns.length === 0)) {
-      // Enrich local data with synthetic ids so FavoriteButton and detail work
-      return GUNS_LOCAL.map((g, i) => ({ ...g, id: g.id || `local-${i}` }))
+    if (isLocal) {
+      const start = (page - 1) * PAGE_SIZE
+      return localFiltered.slice(start, start + PAGE_SIZE)
     }
-    return apiGuns
-  }, [apiGuns, error, useLocal])
-
-  // ---- filters / sort ----
-  const [search, setSearch] = useState('')
-  const [activeCategory, setActiveCategory] = useState('All')
-  const [sortKey, setSortKey] = useState('name')
-  const [sortOrder, setSortOrder] = useState('asc')
-
-  const categories = useMemo(() => extractCategories(rawGuns), [rawGuns])
+    return apiGuns.slice(0, PAGE_SIZE)
+  }, [isLocal, localFiltered, page, apiGuns])
 
   const filteredGuns = useMemo(() => {
     let result = rawGuns.filter(
@@ -52,8 +94,31 @@ export default function Catalog({ onNavigate }) {
     return sortItems(result, sortKey, sortOrder)
   }, [rawGuns, search, activeCategory, sortKey, sortOrder])
 
-  // ---- detail view ----
+  // ---- detail view & shared link ----
   const [selectedGun, setSelectedGun] = useState(null)
+  const [autoOpened, setAutoOpened] = useState(false)
+
+  // Receiver side: inspect '?gun=' query parameter
+  const sharedGunId = useMemo(() => {
+    if (typeof window === 'undefined') return null
+    return new URLSearchParams(window.location.search).get('gun')
+  }, [])
+
+  const { gun: sharedGun } = useGunById(sharedGunId)
+
+  useEffect(() => {
+    if (sharedGun && !autoOpened) {
+      setSelectedGun(sharedGun)
+      setAutoOpened(true)
+    }
+  }, [sharedGun, autoOpened])
+
+  const handleCloseDetail = () => {
+    setSelectedGun(null)
+    if (typeof window !== 'undefined' && window.history && window.history.replaceState) {
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }
 
   // ---- delete ----
   const [deleteTarget, setDeleteTarget] = useState(null)
@@ -67,7 +132,7 @@ export default function Catalog({ onNavigate }) {
       setDeleteError('')
       await gunService.deleteGun(deleteTarget.id)
       setDeleteTarget(null)
-      refetch()
+      handleRefetch()
     } catch (err) {
       setDeleteError(err.message || 'Failed to delete.')
     } finally {
@@ -80,9 +145,15 @@ export default function Catalog({ onNavigate }) {
     return (
       <GunDetail
         gun={selectedGun}
-        onBack={() => setSelectedGun(null)}
-        onEdit={(g) => onNavigate && onNavigate('Edit', g)}
-        onDelete={(g) => { setSelectedGun(null); setDeleteTarget(g) }}
+        onBack={handleCloseDetail}
+        onEdit={(g) => {
+          handleCloseDetail()
+          if (onNavigate) onNavigate('Edit', g)
+        }}
+        onDelete={(g) => {
+          handleCloseDetail()
+          setDeleteTarget(g)
+        }}
       />
     )
   }
@@ -105,6 +176,14 @@ export default function Catalog({ onNavigate }) {
             <span className="count">
               {filteredGuns.length} piece{filteredGuns.length !== 1 ? 's' : ''}
             </span>
+            <button
+              type="button"
+              className="btn btn--outline btn--sm"
+              onClick={handleRefetch}
+              title="Refresh catalog"
+            >
+              <RefreshCw size={14} /> Refresh
+            </button>
             {onNavigate && (
               <button
                 type="button"
@@ -120,10 +199,10 @@ export default function Catalog({ onNavigate }) {
         {/* Filters */}
         <AdvancedFilter
           search={search}
-          onSearch={setSearch}
+          onSearch={handleSearch}
           categories={categories}
           activeCategory={activeCategory}
-          onCategory={setActiveCategory}
+          onCategory={handleCategory}
           sortKey={sortKey}
           sortOrder={sortOrder}
           onSort={({ key, order }) => { setSortKey(key); setSortOrder(order) }}
@@ -142,7 +221,7 @@ export default function Catalog({ onNavigate }) {
             <AlertCircle size={28} />
             <p>{error}</p>
             <div className="state-box__actions">
-              <button type="button" className="btn btn--outline" onClick={refetch}>
+              <button type="button" className="btn btn--outline" onClick={handleRefetch}>
                 <RefreshCw size={16} /> Retry
               </button>
               <button
@@ -178,13 +257,46 @@ export default function Catalog({ onNavigate }) {
           </ul>
         )}
 
+        {/* Pagination controls */}
+        <div
+          className="flex items-center justify-center gap-4 my-6 py-4"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '16px',
+            margin: '24px 0',
+            padding: '8px 0',
+          }}
+        >
+          <button
+            type="button"
+            className="btn btn--outline btn--sm px-4 py-2 border rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1 || loading}
+          >
+            Prev
+          </button>
+          <span className="text-sm font-semibold">
+            Halaman {page}
+          </span>
+          <button
+            type="button"
+            className="btn btn--outline btn--sm px-4 py-2 border rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => setPage((p) => p + 1)}
+            disabled={!hasNext || loading}
+          >
+            Next
+          </button>
+        </div>
+
         {useLocal && (
           <p className="local-notice">
             Showing local catalog (server unavailable).{' '}
             <button
               type="button"
               className="link-btn"
-              onClick={() => { setUseLocal(false); refetch() }}
+              onClick={() => { setUseLocal(false); handleRefetch() }}
             >
               Retry server
             </button>
