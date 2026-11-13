@@ -1,11 +1,9 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, lazy, Suspense } from 'react'
 import { RefreshCw, Plus, Loader, AlertCircle, PackageOpen } from 'lucide-react'
 import { useGuns, useGunById } from '../hooks/useGuns'
 import GUNS_LOCAL from '../data/guns'
 import GunCard from '../components/gun/GunCard'
-import GunDetail from '../components/gun/GunDetail'
 import AdvancedFilter from '../components/common/AdvancedFilter'
-import ConfirmModal from '../components/modals/ConfirmModal'
 import gunService from '../services/gunService'
 import { clearCache } from '../utils/queryCache'
 import {
@@ -13,6 +11,9 @@ import {
   matchesCategory,
   sortItems,
 } from '../utils/helpers'
+
+const GunDetail = lazy(() => import('../components/gun/GunDetail'))
+const ConfirmModal = lazy(() => import('../components/modals/ConfirmModal'))
 
 const PAGE_SIZE = 6
 const FIXED_CATEGORIES = ['All', 'Pistol', 'Rifle', 'Shotgun', 'Submachine Gun']
@@ -143,18 +144,20 @@ export default function Catalog({ onNavigate }) {
   // ---- If viewing a single product detail ----
   if (selectedGun) {
     return (
-      <GunDetail
-        gun={selectedGun}
-        onBack={handleCloseDetail}
-        onEdit={(g) => {
-          handleCloseDetail()
-          if (onNavigate) onNavigate('Edit', g)
-        }}
-        onDelete={(g) => {
-          handleCloseDetail()
-          setDeleteTarget(g)
-        }}
-      />
+      <Suspense fallback={<div className="state-box"><Loader size={28} className="spin" /><p>Loading…</p></div>}>
+        <GunDetail
+          gun={selectedGun}
+          onBack={handleCloseDetail}
+          onEdit={(g) => {
+            handleCloseDetail()
+            if (onNavigate) onNavigate('Edit', g)
+          }}
+          onDelete={(g) => {
+            handleCloseDetail()
+            setDeleteTarget(g)
+          }}
+        />
+      </Suspense>
     )
   }
 
@@ -305,16 +308,18 @@ export default function Catalog({ onNavigate }) {
       </section>
 
       {/* Delete confirmation */}
-      <ConfirmModal
-        open={!!deleteTarget}
-        title="Delete Product"
-        message={`Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        danger
-        loading={deleting}
-        onConfirm={handleDelete}
-        onCancel={() => { setDeleteTarget(null); setDeleteError('') }}
-      />
+      <Suspense fallback={null}>
+        <ConfirmModal
+          open={!!deleteTarget}
+          title="Delete Product"
+          message={`Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`}
+          confirmLabel="Delete"
+          danger
+          loading={deleting}
+          onConfirm={handleDelete}
+          onCancel={() => { setDeleteTarget(null); setDeleteError('') }}
+        />
+      </Suspense>
       {deleteError && (
         <div className="toast toast--error">{deleteError}</div>
       )}

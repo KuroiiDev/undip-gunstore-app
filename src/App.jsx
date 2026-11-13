@@ -1,7 +1,6 @@
 import React, { useState, Suspense } from 'react'
 import Header from './components/Header.jsx'
 import Footer from './components/Footer.jsx'
-import GunDetail from './components/gun/GunDetail.jsx'
 import PWABadge from './components/PWABadge.jsx'
 import ConfirmModal from './components/modals/ConfirmModal.jsx'
 import SplashScreen from './components/common/SplashScreen.jsx'
@@ -15,6 +14,7 @@ const CreateGunPage = React.lazy(() => import('./pages/CreateGunPage.jsx'))
 const EditGunPage = React.lazy(() => import('./pages/EditGunPage.jsx'))
 const About = React.lazy(() => import('./pages/About.jsx'))
 const Contact = React.lazy(() => import('./pages/Contact.jsx'))
+const GunDetail = React.lazy(() => import('./components/gun/GunDetail.jsx'))
 
 function App() {
   const [showSplash, setShowSplash] = useState(true)
