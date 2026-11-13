@@ -30,7 +30,11 @@ import {
 } from '../../utils/reviewReactions'
 
 export default function GunDetail({ gun, onBack, onEdit, onDelete, onArchive }) {
-  const imgSrc = gun.image_url || gun.image || '/guns/pistol.svg'
+  const images = Array.isArray(gun.images) && gun.images.length > 0
+    ? gun.images
+    : [gun.image_url || gun.image || '/guns/pistol.svg']
+  const [selectedImgIndex, setSelectedImgIndex] = useState(0)
+  const imgSrc = images[selectedImgIndex] || images[0] || '/guns/pistol.svg'
   const category = gun.type || gun.category || '—'
   const caliber = gun.caliber || gun.difficulty || ''
   const price = gun.price ?? gun.cook_time ?? 0
@@ -152,7 +156,37 @@ export default function GunDetail({ gun, onBack, onEdit, onDelete, onArchive }) 
 
       {/* Hero */}
       <div className="detail-hero">
-        <LazyImage className="detail-img" src={imgSrc} alt={gun.name} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <LazyImage className="detail-img" src={imgSrc} alt={gun.name} />
+          {images.length > 1 && (
+            <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+              {images.map((img, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setSelectedImgIndex(idx)}
+                  style={{
+                    border: selectedImgIndex === idx ? '2px solid var(--brass)' : '1px solid var(--line)',
+                    borderRadius: '4px',
+                    padding: '2px',
+                    background: '#fff',
+                    cursor: 'pointer',
+                    width: '54px',
+                    height: '54px',
+                    flexShrink: 0,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <img
+                    src={img}
+                    alt={`Thumb ${idx + 1}`}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '2px' }}
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="detail-info">
           <h1 className="display">{gun.name}</h1>
           <p className="type">

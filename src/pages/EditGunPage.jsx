@@ -1,16 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   ArrowLeft,
   Upload,
-  X,
   Plus,
-  Loader,
+  Trash2,
   Save,
   CheckCircle,
   AlertCircle,
+  FileText,
+  Clock,
+  Loader,
+  X,
 } from 'lucide-react'
 import gunService from '../services/gunService'
 import uploadService from '../services/uploadService'
+import ConfirmModal from '../components/modals/ConfirmModal'
 import {
   saveDraft,
   loadDraft,
@@ -19,64 +23,65 @@ import {
   getDraftTimestamp,
   formatDraftTime,
 } from '../utils/draftStorage'
-import ConfirmModal from '../components/modals/ConfirmModal'
 
-/**
- * EditGunPage — Edit an existing weapon / hardware item.
- * Supports updating specs, steps, image replacement, and draft management.
- */
 export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
   const targetId = gunId || gun?.id
 
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!gun)
   const [updating, setUpdating] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
 
   const [formData, setFormData] = useState({
-    name: '',
-    type: 'Pistol',
-    caliber: '9mm',
-    category: 'makanan',
-    difficulty: 'mudah',
-    price: 599,
-    description: '',
-    servings: 1,
-    is_featured: false,
+    name: gun?.name || '',
+    type: gun?.type || (gun?.category === 'makanan' ? 'Pistol' : 'Rifle'),
+    caliber: gun?.caliber || '9mm',
+    category: gun?.category || 'makanan',
+    difficulty: gun?.difficulty || 'mudah',
+    price: gun?.price ?? gun?.cook_time ?? 599,
+    description: gun?.description || '',
+    servings: gun?.servings || 1,
+    is_featured: Boolean(gun?.is_featured),
   })
 
-  const [currentImageUrl, setCurrentImageUrl] = useState('')
-  const [imageFile, setImageFile] = useState(null)
-  const [imagePreview, setImagePreview] = useState(null)
-  const [uploading, setUploading] = useState(false)
+  // Multi-image state
+  const initialImages = Array.isArray(gun?.images) && gun.images.length > 0
+    ? gun.images
+    : (gun?.image_url || gun?.image ? [gun.image_url || gun.image] : ['/guns/pistol.svg'])
 
-  // Specs & Steps
-  const [specs, setSpecs] = useState([{ name: '', quantity: '' }])
-  const [steps, setSteps] = useState([''])
+  const [imagesList, setImagesList] = useState(initialImages)
+  const [specs, setSpecs] = useState(
+    gun?.ingredients && gun.ingredients.length > 0
+      ? gun.ingredients.map((ing) => ({
+          name: ing.name || '',
+          quantity: ing.quantity || '',
+        }))
+      : [
+          { name: 'Platform', quantity: gun?.type || 'Pistol' },
+          { name: 'Caliber', quantity: gun?.caliber || '9mm' },
+        ],
+  )
 
-  // Draft modal
-  const [showDraftModal, setShowDraftModal] = useState(() => (targetId ? hasDraft(targetId) : false))
-  const [draftTimestamp, setDraftTimestamp] = useState(() => (targetId ? getDraftTimestamp(targetId) : null))
+  const [steps, setSteps] = useState(
+    gun?.steps && gun.steps.length > 0
+      ? gun.steps.map((st) => (typeof st === 'string' ? st : st.instruction || ''))
+      : ['Standard manufacturer maintenance and cleaning protocol.'],
+  )
 
-  // Fetch initial data
+  const [showDraftModal, setShowDraftModal] = useState(() => hasDraft(targetId))
+  const [draftTimestamp, setDraftTimestamp] = useState(() => getDraftTimestamp(targetId))
+  const [showConfirmBack, setShowConfirmBack] = useState(false)
+
   useEffect(() => {
-    const fetchGun = async () => {
+    async function fetchGun() {
+      if (gun) return
       try {
         setLoading(true)
         setError('')
-
-        // If gun was passed directly and has full details, use it; else fetch from API
-        let data = gun
-        if (!data || !data.ingredients || !data.steps) {
-          if (targetId && !String(targetId).startsWith('local-')) {
-            const res = await gunService.getGunById(targetId)
-            if (res.success && res.data) {
-              data = res.data
-            }
-          }
-        }
-
-        if (data) {
+        const res = await gunService.getGunById(targetId)
+        if (res.success && res.data) {
+          const data = res.data
           setFormData({
             name: data.name || '',
             type: data.type || (data.category === 'makanan' ? 'Pistol' : 'Rifle'),
@@ -88,7 +93,11 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
             servings: data.servings || 1,
             is_featured: Boolean(data.is_featured),
           })
-          setCurrentImageUrl(data.image_url || data.image || '/guns/pistol.svg')
+
+          const fetchedImgs = Array.isArray(data.images) && data.images.length > 0
+            ? data.images
+            : [data.image_url || data.image || '/guns/pistol.svg']
+          setImagesList(fetchedImgs)
 
           if (data.ingredients && data.ingredients.length > 0) {
             setSpecs(data.ingredients.map((ing) => ({
@@ -107,7 +116,6 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
           } else {
             setSteps(['Standard manufacturer maintenance and cleaning protocol.'])
           }
-
         } else {
           setError('Hardware record could not be loaded.')
         }
@@ -121,18 +129,16 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
     if (targetId) {
       fetchGun()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetId])
+  }, [targetId, gun])
 
-  // Draft operations
   const handleLoadDraft = () => {
     const draft = loadDraft(targetId)
     if (draft) {
       if (draft.formData) setFormData(draft.formData)
       if (draft.specs) setSpecs(draft.specs)
       if (draft.steps) setSteps(draft.steps)
-      if (draft.imagePreview) {
-        setImagePreview(draft.imagePreview)
+      if (Array.isArray(draft.imagesList)) {
+        setImagesList(draft.imagesList)
       }
       setShowDraftModal(false)
       setSuccessMsg('Saved draft restored.')
@@ -146,12 +152,12 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
     setDraftTimestamp(null)
   }
 
-  const handleManualSaveDraft = () => {
+  const handleSaveDraft = useCallback(() => {
     const draftData = {
       formData,
       specs,
       steps,
-      imagePreview: imagePreview || currentImageUrl,
+      imagesList,
     }
     const saved = saveDraft(draftData, targetId)
     if (saved) {
@@ -160,52 +166,39 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
       setSuccessMsg(`Draft saved (${formatDraftTime(ts)})`)
       setTimeout(() => setSuccessMsg(''), 3000)
     }
-  }
+  }, [formData, specs, steps, imagesList, targetId])
 
-  // Handle new image file
+  // Handle image upload / selection (multiple files)
   const handleImageChange = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-
-    if (file.size > 5 * 1024 * 1024) {
-      setError('File size exceeds 5MB limit.')
-      return
-    }
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
 
     const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
-    if (!allowed.includes(file.type)) {
-      setError('Allowed formats: .jpg, .jpeg, .png, .webp')
-      return
+    const newImgs = []
+
+    for (const file of files) {
+      if (file.size > 5 * 1024 * 1024) {
+        setError(`File ${file.name} exceeds 5MB limit.`)
+        return
+      }
+      if (!allowed.includes(file.type)) {
+        setError('Allowed formats: .jpg, .jpeg, .png, .webp')
+        return
+      }
+      newImgs.push(URL.createObjectURL(file))
     }
 
-    setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
+    setImagesList((prev) => [...prev, ...newImgs])
     setError('')
   }
 
-  const handleUploadNewImage = async () => {
-    if (!imageFile) return
-    try {
-      setUploading(true)
-      const res = await uploadService.uploadImage(imageFile)
-      if (res.success && res.data?.url) {
-        setCurrentImageUrl(res.data.url)
-        setImageFile(null)
-        setImagePreview(null)
-        setSuccessMsg('New image uploaded successfully.')
-        setTimeout(() => setSuccessMsg(''), 3000)
-      }
-    } catch (err) {
-      console.warn('Image upload failed, using local blob:', err)
-      setCurrentImageUrl(imagePreview)
-      setImageFile(null)
-      setImagePreview(null)
-    } finally {
-      setUploading(false)
-    }
+  const handleRemoveImage = (index) => {
+    setImagesList((prev) => {
+      const updated = prev.filter((_, i) => i !== index)
+      return updated.length > 0 ? updated : ['/guns/pistol.svg']
+    })
   }
 
-  // Specs & Steps
   const handleSpecChange = (index, field, value) => {
     setSpecs((prev) => {
       const copy = [...prev]
@@ -234,13 +227,20 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
     setSteps((prev) => prev.filter((_, i) => i !== index))
   }
 
-  // Submit update
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target
+    setFormData((prev) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value,
+    }))
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
 
-    if (!formData.name.trim() || formData.name.trim().length < 3) {
-      setError('Product name must be at least 3 characters.')
+    if (!formData.name.trim()) {
+      setError('Model designation is required.')
       return
     }
 
@@ -265,6 +265,8 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
       return
     }
 
+    const finalImages = imagesList.length > 0 ? imagesList : ['/guns/pistol.svg']
+
     const payload = {
       name: formData.name.trim(),
       type: formData.type || (formData.category === 'minuman' ? 'Rifle' : 'Pistol'),
@@ -272,7 +274,8 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
       price: Number(formData.price) || 500,
       category: formData.category || 'makanan',
       description: formData.description.trim() || `${formData.type} caliber ${formData.caliber}.`,
-      image_url: imagePreview || currentImageUrl || '/guns/pistol.svg',
+      image_url: finalImages[0],
+      images: finalImages,
       prep_time: 15,
       cook_time: Number(formData.price) || 500,
       servings: Number(formData.servings) || 1,
@@ -306,40 +309,47 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
     return (
       <div className="state-box">
         <Loader size={32} className="spin" />
-        <p>Loading hardware details for editing…</p>
+        <p>Retrieving hardware specifications…</p>
       </div>
     )
   }
 
   return (
-    <div className="form-page">
-      {/* Head */}
-      <div className="form-head">
-        <button type="button" className="detail-back" onClick={onBack}>
-          <ArrowLeft size={18} /> Back
-        </button>
+    <div className="entry-page">
+      <div className="entry-header">
         <button
           type="button"
-          className="btn btn--outline btn--sm"
-          onClick={handleManualSaveDraft}
-          title="Save draft"
+          className="detail-back"
+          onClick={() => setShowConfirmBack(true)}
         >
-          <Save size={14} /> Save Draft
+          <ArrowLeft size={18} /> Cancel &amp; Return
         </button>
+
+        <div className="entry-header-actions">
+          <button
+            type="button"
+            className="btn btn--outline btn--sm"
+            onClick={handleSaveDraft}
+            title="Save draft"
+          >
+            <FileText size={14} /> Save Draft
+          </button>
+        </div>
       </div>
 
-      <div className="form-title-group">
+      <section className="masthead">
         <h1 className="display">Modify Hardware Record</h1>
         <p className="lede">
-          Updating record ID: <code className="mono-badge">{targetId}</code>
+          Update registry specifications, operational caliber, or visual imagery for {formData.name || 'this unit'}.
         </p>
-      </div>
+      </section>
 
       {error && (
         <div className="toast toast--error">
           <AlertCircle size={18} /> {error}
         </div>
       )}
+
       {successMsg && (
         <div className="toast toast--success">
           <CheckCircle size={18} /> {successMsg}
@@ -349,42 +359,86 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
       <form onSubmit={handleSubmit} className="entry-form">
         {/* Imagery Section */}
         <div className="card-box">
-          <h2 className="card-box-title">Visual Asset</h2>
-          <div className="edit-img-wrap">
-            <img
-              src={imagePreview || currentImageUrl}
-              alt="Current hardware"
-              className="edit-current-img"
-            />
-            <div className="edit-img-controls">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <h2 className="card-box-title" style={{ margin: 0 }}>Visual Asset ({imagesList.length} Gambar)</h2>
+            <label className="btn btn--outline btn--sm" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <Plus size={14} /> Tambah Gambar
               <input
                 id="edit-gun-image"
                 type="file"
+                multiple
                 accept="image/jpeg,image/jpg,image/png,image/webp"
                 onChange={handleImageChange}
                 className="hidden-file-input"
               />
-              <label htmlFor="edit-gun-image" className="btn btn--outline btn--sm">
-                <Upload size={14} /> Select New Image File
-              </label>
+            </label>
+          </div>
 
-              {imageFile && (
-                <button
-                  type="button"
-                  className="btn btn--primary btn--sm"
-                  onClick={handleUploadNewImage}
-                  disabled={uploading}
-                >
-                  {uploading ? (
-                    <>
-                      <Loader size={14} className="spin" /> Uploading…
-                    </>
-                  ) : (
-                    'Upload to MinIO'
-                  )}
-                </button>
-              )}
-            </div>
+          <p className="card-box-desc" style={{ marginBottom: '14px' }}>
+            Kamu dapat mengunggah lebih dari satu gambar per katalog. Gambar pertama akan menjadi foto utama.
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '12px' }}>
+            {imagesList.map((img, idx) => (
+              <div
+                key={idx}
+                style={{
+                  position: 'relative',
+                  height: '110px',
+                  borderRadius: '4px',
+                  overflow: 'hidden',
+                  border: idx === 0 ? '2px solid var(--brass)' : '1px solid var(--line)',
+                  background: 'var(--paper)',
+                }}
+              >
+                <img
+                  src={img}
+                  alt={`Asset ${idx + 1}`}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+                {idx === 0 && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '4px',
+                      left: '4px',
+                      background: 'var(--brass)',
+                      color: '#fff',
+                      fontSize: '0.65rem',
+                      fontWeight: 700,
+                      padding: '2px 5px',
+                      borderRadius: '2px',
+                    }}
+                  >
+                    UTAMA
+                  </span>
+                )}
+                {imagesList.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveImage(idx)}
+                    style={{
+                      position: 'absolute',
+                      top: '4px',
+                      right: '4px',
+                      width: '22px',
+                      height: '22px',
+                      borderRadius: '50%',
+                      background: 'rgba(0, 0, 0, 0.7)',
+                      color: '#fff',
+                      border: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                    }}
+                    title="Hapus gambar ini"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -399,7 +453,8 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
               type="text"
               name="name"
               value={formData.name}
-              onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
+              onChange={handleChange}
+              placeholder="e.g. M4A1 Carbine"
               className="form-input"
               required
             />
@@ -407,40 +462,33 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
 
           <div className="form-group">
             <label htmlFor="edit-type" className="form-label">
-              Platform / Category <span className="req">*</span>
+              Classification
             </label>
             <select
               id="edit-type"
               name="type"
               value={formData.type}
-              onChange={(e) =>
-                setFormData((p) => ({
-                  ...p,
-                  type: e.target.value,
-                  category: e.target.value === 'Pistol' ? 'makanan' : 'minuman',
-                }))
-              }
+              onChange={handleChange}
               className="form-select"
             >
-              <option value="Pistol">Pistol (Sidearm)</option>
-              <option value="Rifle">Rifle (Long Gun)</option>
-              <option value="Shotgun">Shotgun (Smoothbore)</option>
+              <option value="Pistol">Pistol</option>
+              <option value="Rifle">Rifle</option>
+              <option value="Shotgun">Shotgun</option>
               <option value="Submachine Gun">Submachine Gun</option>
             </select>
           </div>
-        </div>
 
-        <div className="form-grid form-grid--3">
           <div className="form-group">
             <label htmlFor="edit-caliber" className="form-label">
-              Caliber / Chambering <span className="req">*</span>
+              Operating Caliber <span className="req">*</span>
             </label>
             <input
               id="edit-caliber"
               type="text"
               name="caliber"
               value={formData.caliber}
-              onChange={(e) => setFormData((p) => ({ ...p, caliber: e.target.value }))}
+              onChange={handleChange}
+              placeholder="e.g. 5.56x45mm NATO, 9x19mm Parabellum"
               className="form-input"
               required
             />
@@ -448,160 +496,170 @@ export default function EditGunPage({ gun, gunId, onBack, onSuccess }) {
 
           <div className="form-group">
             <label htmlFor="edit-price" className="form-label">
-              Price (USD) <span className="req">*</span>
+              Unit Price (USD) <span className="req">*</span>
             </label>
             <input
               id="edit-price"
               type="number"
               name="price"
               value={formData.price}
-              onChange={(e) => setFormData((p) => ({ ...p, price: e.target.value }))}
+              onChange={handleChange}
+              placeholder="850"
               className="form-input"
               min="0"
               required
             />
           </div>
-
-          <div className="form-group">
-            <label htmlFor="edit-difficulty" className="form-label">
-              Grade / Build Quality <span className="req">*</span>
-            </label>
-            <select
-              id="edit-difficulty"
-              name="difficulty"
-              value={formData.difficulty}
-              onChange={(e) => setFormData((p) => ({ ...p, difficulty: e.target.value }))}
-              className="form-select"
-            >
-              <option value="mudah">Commercial / Standard</option>
-              <option value="sedang">Mil-Spec / Service Issue</option>
-              <option value="sulit">Match Grade / Custom</option>
-            </select>
-          </div>
         </div>
 
+        {/* Description */}
         <div className="form-group">
           <label htmlFor="edit-desc" className="form-label">
-            Armory Description
+            Operational History / Armory Description
           </label>
           <textarea
             id="edit-desc"
             name="description"
+            rows="4"
             value={formData.description}
-            onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))}
-            rows={3}
+            onChange={handleChange}
+            placeholder="Field reports, reliability notes, recommended mission profiles..."
             className="form-textarea"
           />
         </div>
 
-        {/* Specs */}
-        <div className="form-fieldset">
-          <div className="fieldset-header">
-            <label className="form-label">Specifications &amp; Components</label>
-            <button type="button" className="btn btn--outline btn--sm" onClick={addSpec}>
+        {/* Technical Specifications */}
+        <div className="card-box">
+          <div className="card-box-header">
+            <div>
+              <h2 className="card-box-title">Technical Specifications</h2>
+              <p className="card-box-desc">
+                Mechanical constraints, material composition, barrel length, capacity.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn--outline btn--sm"
+              onClick={addSpec}
+            >
               <Plus size={14} /> Add Spec
             </button>
           </div>
-          <div className="multi-rows">
-            {specs.map((spec, i) => (
-              <div key={i} className="multi-row">
+
+          <div className="repeater-list">
+            {specs.map((spec, idx) => (
+              <div key={idx} className="repeater-row">
                 <input
                   type="text"
-                  placeholder="Attribute"
+                  placeholder="Parameter (e.g. Weight)"
                   value={spec.name}
-                  onChange={(e) => handleSpecChange(i, 'name', e.target.value)}
+                  onChange={(e) => handleSpecChange(idx, 'name', e.target.value)}
                   className="form-input"
                 />
                 <input
                   type="text"
-                  placeholder="Value"
+                  placeholder="Metric (e.g. 3.2 kg)"
                   value={spec.quantity}
-                  onChange={(e) => handleSpecChange(i, 'quantity', e.target.value)}
+                  onChange={(e) => handleSpecChange(idx, 'quantity', e.target.value)}
                   className="form-input"
                 />
                 <button
                   type="button"
-                  className="btn btn--danger-ghost"
-                  onClick={() => removeSpec(i)}
+                  className="btn btn--outline btn--sm repeater-remove"
+                  onClick={() => removeSpec(idx)}
                   disabled={specs.length <= 1}
+                  title="Remove spec"
                 >
-                  <X size={16} />
+                  <Trash2 size={15} />
                 </button>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Steps */}
-        <div className="form-fieldset">
-          <div className="fieldset-header">
-            <label className="form-label">Assembly &amp; Maintenance Protocol</label>
-            <button type="button" className="btn btn--outline btn--sm" onClick={addStep}>
+        {/* Maintenance Protocol */}
+        <div className="card-box">
+          <div className="card-box-header">
+            <div>
+              <h2 className="card-box-title">Maintenance &amp; Inspection Steps</h2>
+              <p className="card-box-desc">
+                Disassembly, lubrication schedule, and safety verification protocol.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn--outline btn--sm"
+              onClick={addStep}
+            >
               <Plus size={14} /> Add Step
             </button>
           </div>
-          <div className="multi-rows">
-            {steps.map((st, i) => (
-              <div key={i} className="step-row">
-                <span className="step-num">{i + 1}</span>
-                <input
-                  type="text"
+
+          <div className="repeater-list">
+            {steps.map((st, idx) => (
+              <div key={idx} className="repeater-row repeater-row--step">
+                <span className="step-num">{idx + 1}.</span>
+                <textarea
+                  rows="2"
+                  placeholder={`Step ${idx + 1} instruction...`}
                   value={st}
-                  onChange={(e) => handleStepChange(i, e.target.value)}
-                  className="form-input"
+                  onChange={(e) => handleStepChange(idx, e.target.value)}
+                  className="form-textarea"
                 />
                 <button
                   type="button"
-                  className="btn btn--danger-ghost"
-                  onClick={() => removeStep(i)}
+                  className="btn btn--outline btn--sm repeater-remove"
+                  onClick={() => removeStep(idx)}
                   disabled={steps.length <= 1}
+                  title="Remove step"
                 >
-                  <X size={16} />
+                  <Trash2 size={15} />
                 </button>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Featured */}
-        <div className="checkbox-row">
-          <input
-            id="edit-is-featured"
-            type="checkbox"
-            name="is_featured"
-            checked={formData.is_featured}
-            onChange={(e) => setFormData((p) => ({ ...p, is_featured: e.target.checked }))}
-            className="form-checkbox"
-          />
-          <label htmlFor="edit-is-featured" className="checkbox-label">
-            Feature in Armory Showcase
-          </label>
-        </div>
-
         {/* Submit */}
-        <div className="form-actions-bar">
-          <button type="button" className="btn btn--outline" onClick={onBack} disabled={updating}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn--primary" disabled={updating}>
+        <div className="entry-submit-bar">
+          <button
+            type="submit"
+            className="btn btn--primary btn--lg"
+            disabled={updating}
+          >
             {updating ? (
               <>
-                <Loader size={18} className="spin" /> Updating Record…
+                <Loader size={18} className="spin" /> Updating Catalog…
               </>
             ) : (
-              'Save Changes'
+              <>
+                <Save size={18} /> Commit Hardware Changes
+              </>
             )}
           </button>
         </div>
       </form>
 
-      {/* Restore draft dialog */}
+      {/* Confirm Back Modal */}
+      <ConfirmModal
+        open={showConfirmBack}
+        title="Discard Unsaved Changes?"
+        message="Any modifications not committed to the catalog will be lost unless saved to draft."
+        confirmLabel="Leave Editor"
+        onConfirm={() => {
+          setShowConfirmBack(false)
+          if (onBack) onBack()
+        }}
+        onCancel={() => setShowConfirmBack(false)}
+      />
+
+      {/* Draft Restoration Modal */}
       <ConfirmModal
         open={showDraftModal}
-        title="Resume Unsaved Changes?"
-        message={`An unsaved draft for this product was saved on ${draftTimestamp ? formatDraftTime(draftTimestamp) : 'earlier'}. Would you like to restore it?`}
+        title="Restore Saved Edit Draft?"
+        message={`An unfinished draft saved on ${formatDraftTime(draftTimestamp)} was discovered.`}
         confirmLabel="Restore Draft"
-        cancelLabel="Discard"
+        cancelLabel="Discard Draft"
         onConfirm={handleLoadDraft}
         onCancel={handleDiscardDraft}
       />

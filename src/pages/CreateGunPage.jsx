@@ -44,6 +44,7 @@ export default function CreateGunPage({ onBack, onSuccess }) {
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
   const [uploadedImageUrl, setUploadedImageUrl] = useState('')
+  const [imagesList, setImagesList] = useState([])
 
   // Specifications (ingredients in API)
   const [specs, setSpecs] = useState([
@@ -121,22 +122,29 @@ export default function CreateGunPage({ onBack, onSuccess }) {
 
   // Handle file selection
   const handleImageChange = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-
-    if (file.size > 5 * 1024 * 1024) {
-      setError('File size exceeds 5MB limit.')
-      return
-    }
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
 
     const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
-    if (!allowed.includes(file.type)) {
-      setError('Allowed formats: .jpg, .jpeg, .png, .webp')
-      return
+    const validFiles = []
+    const newPreviews = []
+
+    for (const file of files) {
+      if (file.size > 5 * 1024 * 1024) {
+        setError(`File ${file.name} exceeds 5MB limit.`)
+        return
+      }
+      if (!allowed.includes(file.type)) {
+        setError('Allowed formats: .jpg, .jpeg, .png, .webp')
+        return
+      }
+      validFiles.push(file)
+      newPreviews.push(URL.createObjectURL(file))
     }
 
-    setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
+    setImageFile(validFiles[0])
+    setImagePreview(newPreviews[0])
+    setImagesList((prev) => [...prev, ...newPreviews])
     setError('')
   }
 
@@ -145,6 +153,7 @@ export default function CreateGunPage({ onBack, onSuccess }) {
     setImageFile(null)
     setImagePreview(url)
     setUploadedImageUrl(url)
+    setImagesList((prev) => (prev.includes(url) ? prev : [...prev, url]))
     setCurrentStep('form')
     setError('')
   }
@@ -256,12 +265,17 @@ export default function CreateGunPage({ onBack, onSuccess }) {
       return
     }
 
+    const allImages = imagesList.length > 0
+      ? imagesList
+      : (uploadedImageUrl ? [uploadedImageUrl] : ['/guns/pistol.svg'])
+
     // Prepare payload compliant with backend /api/v1/recipes schema
     const payload = {
       name: formData.name.trim(),
       category: formData.category || 'makanan',
       description: formData.description.trim() || `${formData.type} caliber ${formData.caliber}.`,
-      image_url: uploadedImageUrl || '/guns/pistol.svg',
+      image_url: allImages[0],
+      images: allImages,
       prep_time: 15,
       cook_time: Number(formData.price) || 500, // Price stored in cook_time
       servings: Number(formData.servings) || 1,
@@ -351,19 +365,20 @@ export default function CreateGunPage({ onBack, onSuccess }) {
             Upload an authentic photograph or blueprint (max 5MB), or select an armory preset.
           </p>
 
-          {!imagePreview ? (
+          {imagesList.length === 0 && !imagePreview ? (
             <div className="upload-dropzone">
               <input
                 id="gun-image-input"
                 type="file"
+                multiple
                 accept="image/jpeg,image/jpg,image/png,image/webp"
                 onChange={handleImageChange}
                 className="hidden-file-input"
               />
               <label htmlFor="gun-image-input" className="upload-label">
                 <Upload size={36} className="upload-icon" />
-                <span className="upload-main-text">Click to choose an image file</span>
-                <span className="upload-sub-text">JPG, PNG, or WebP up to 5MB</span>
+                <span className="upload-main-text">Click to choose image file(s)</span>
+                <span className="upload-sub-text">JPG, PNG, or WebP up to 5MB (Multiple allowed)</span>
               </label>
 
               <div className="preset-selector">
@@ -395,20 +410,41 @@ export default function CreateGunPage({ onBack, onSuccess }) {
             </div>
           ) : (
             <div className="preview-container">
-              <div className="preview-image-wrap">
-                <img src={imagePreview} alt="Hardware preview" className="preview-img" />
-                <button
-                  type="button"
-                  className="preview-remove-btn"
-                  onClick={() => {
-                    setImageFile(null)
-                    setImagePreview(null)
-                    setUploadedImageUrl('')
-                  }}
-                  title="Remove image"
-                >
-                  <X size={18} />
-                </button>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '10px', marginBottom: '14px' }}>
+                {(imagesList.length > 0 ? imagesList : [imagePreview]).map((img, idx) => (
+                  <div key={idx} className="preview-image-wrap" style={{ position: 'relative', height: '110px' }}>
+                    <img src={img} alt={`Preview ${idx + 1}`} className="preview-img" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <button
+                      type="button"
+                      className="preview-remove-btn"
+                      onClick={() => {
+                        const next = imagesList.filter((_, i) => i !== idx)
+                        setImagesList(next)
+                        if (next.length === 0) {
+                          setImageFile(null)
+                          setImagePreview(null)
+                          setUploadedImageUrl('')
+                        }
+                      }}
+                      title="Remove image"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginBottom: '12px' }}>
+                <label className="btn btn--outline btn--sm" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <Plus size={14} /> Tambah Foto Lain
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    onChange={handleImageChange}
+                    className="hidden-file-input"
+                  />
+                </label>
               </div>
 
               <div className="preview-actions">
@@ -432,7 +468,11 @@ export default function CreateGunPage({ onBack, onSuccess }) {
                   type="button"
                   className="btn btn--outline"
                   onClick={() => {
-                    setUploadedImageUrl(imagePreview)
+                    if (imagesList.length > 0) {
+                      setUploadedImageUrl(imagesList[0])
+                    } else {
+                      setUploadedImageUrl(imagePreview)
+                    }
                     setCurrentStep('form')
                   }}
                 >

@@ -39,6 +39,29 @@ export const normalizeProduct = (item) => {
       ? item.steps
       : ['Verify firearm is completely unloaded and point in safe direction.', 'Inspect receiver and mechanism for maintenance.']
 
+  // Multi-image parsing
+  const rawImages = item.images || item.image_urls
+  let images = []
+  if (Array.isArray(rawImages)) {
+    images = rawImages.filter(Boolean)
+  } else if (typeof item.image_url === 'string' && item.image_url.startsWith('[')) {
+    try {
+      images = JSON.parse(item.image_url)
+    } catch {
+      images = [item.image_url]
+    }
+  } else if (item.image_url) {
+    images = [item.image_url]
+  } else if (item.image) {
+    images = [item.image]
+  }
+
+  if (images.length === 0) {
+    images = ['/guns/pistol.svg']
+  }
+
+  const primaryImage = images[0]
+
   return {
     ...item,
     id: item.id,
@@ -48,8 +71,9 @@ export const normalizeProduct = (item) => {
     caliber: item.caliber || 'Standard',
     price: Number(item.price ?? item.cook_time ?? 0),
     description: item.description || '',
-    image_url: item.image_url || item.image || '/guns/pistol.svg',
-    image: item.image_url || item.image || '/guns/pistol.svg',
+    image_url: primaryImage,
+    image: primaryImage,
+    images: images,
     ingredients: specsList,
     steps: stepsList,
   }
@@ -138,6 +162,10 @@ class GunService {
         ? data.specs
         : []
 
+      const imageVal = Array.isArray(data.images) && data.images.length > 1
+        ? JSON.stringify(data.images)
+        : (data.image_url || (Array.isArray(data.images) ? data.images[0] : null))
+
       const payload = {
         name: data.name,
         type: data.type || (data.category === 'minuman' ? 'Rifle' : 'Pistol'),
@@ -145,7 +173,7 @@ class GunService {
         price: Number(data.price ?? data.cook_time ?? 0),
         description: data.description || '',
         specs: specsArray,
-        image_url: data.image_url || null,
+        image_url: imageVal,
       }
 
       const res = await apiClient.post('/rest/v1/products', payload, {
@@ -163,54 +191,55 @@ class GunService {
    */
   async updateGun(id, data) {
     if (IS_SUPABASE) {
-      const specsArray = Array.isArray(data.ingredients)
-        ? data.ingredients.map((i) => `${i.name}: ${i.quantity}`)
-        : Array.isArray(data.specs)
-        ? data.specs
-        : undefined
+      const payload = {}
 
-      const payload = {
-        updated_at: new Date().toISOString(),
-      }
       if (data.name !== undefined) payload.name = data.name
       if (data.type !== undefined) payload.type = data.type
       if (data.caliber !== undefined) payload.caliber = data.caliber
       if (data.price !== undefined || data.cook_time !== undefined) {
-        payload.price = Number(data.price ?? data.cook_time ?? 0)
+        payload.price = Number(data.price ?? data.cook_time)
       }
       if (data.description !== undefined) payload.description = data.description
-      if (specsArray !== undefined) payload.specs = specsArray
-      if (data.image_url !== undefined) payload.image_url = data.image_url
 
-      const res = await apiClient.patch(`/rest/v1/products?id=eq.${id}`, payload, {
-        headers: { Prefer: 'return=representation' },
-      })
+      if (data.ingredients) {
+        payload.specs = data.ingredients.map((i) => `${i.name}: ${i.quantity}`)
+      } else if (data.specs) {
+        payload.specs = data.specs
+      }
+
+      if (Array.isArray(data.images) && data.images.length > 1) {
+        payload.image_url = JSON.stringify(data.images)
+      } else if (data.image_url !== undefined) {
+        payload.image_url = data.image_url
+      }
+
+      const res = await apiClient.patch(
+        `/rest/v1/products?id=eq.${id}`,
+        payload,
+        {
+          headers: { Prefer: 'return=representation' },
+        },
+      )
       clearCache('guns:')
+      clearCache(`gun:${id}`)
       const updated = Array.isArray(res) ? res[0] : res
       return { success: true, data: normalizeProduct(updated) }
     }
+
     return apiClient.put(`/api/v1/recipes/${id}`, data)
   }
 
   /**
-   * Partial update (PATCH).
-   */
-  async patchGun(id, data) {
-    if (IS_SUPABASE) {
-      return this.updateGun(id, data)
-    }
-    return apiClient.patch(`/api/v1/recipes/${id}`, data)
-  }
-
-  /**
-   * Delete product.
+   * Delete a product.
    */
   async deleteGun(id) {
     if (IS_SUPABASE) {
       await apiClient.delete(`/rest/v1/products?id=eq.${id}`)
       clearCache('guns:')
+      clearCache(`gun:${id}`)
       return { success: true }
     }
+
     return apiClient.delete(`/api/v1/recipes/${id}`)
   }
 }
