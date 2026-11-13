@@ -1,34 +1,30 @@
 /**
- * Utility functions for sharing gun catalog items.
- */
-
-/**
- * Builds the shareable URL for a specific gun ID.
+ * Builds the shareable URL for a specific gun ID or slug.
  * @param {string|number} id
  * @returns {string}
  */
 export function buildShareUrl(id) {
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  return `${origin}/?gun=${encodeURIComponent(id)}`
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
+  return `${origin}${pathname}?gun=${encodeURIComponent(id)}`
 }
 
 /**
- * Shares a gun item via Web Share API if supported, or copies the URL to the clipboard.
- * Returns 'shared', 'copied', or 'cancelled'. Re-throws other errors.
  *
  * @param {Object} gun
  * @returns {Promise<'shared' | 'copied' | 'cancelled'>}
  */
 export async function shareGun(gun) {
-  if (!gun || gun.id === undefined || gun.id === null) {
+  const targetId = gun?.id ?? gun?.name
+  if (targetId === undefined || targetId === null) {
     throw new Error('Invalid gun data for sharing.')
   }
 
-  const url = buildShareUrl(gun.id)
-  const title = gun.name ? `${gun.name} - Bore & Barrel` : 'Bore & Barrel Armory'
-  const text = gun.description || `Check out ${gun.name || 'this piece'} on Bore & Barrel.`
+  const url = buildShareUrl(targetId)
+  const title = gun.name ? `${gun.name} - Ammu-Nation & Bore Barrel` : 'Tactical Armory Catalog'
+  const text = gun.description || `Check out ${gun.name || 'this piece'} on the Armory catalog.`
 
-  // 1. Try Web Share API
+  // 1. Try Web Share API (mobile / supported browsers)
   if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
     try {
       await navigator.share({ title, text, url })
@@ -37,7 +33,7 @@ export async function shareGun(gun) {
       if (err.name === 'AbortError') {
         return 'cancelled'
       }
-      throw err
+      // If Web Share failed for non-abort reasons, fallback to clipboard
     }
   }
 
@@ -51,6 +47,24 @@ export async function shareGun(gun) {
     return 'copied'
   }
 
+  // 3. Fallback for older browsers / insecure context
+  if (typeof document !== 'undefined') {
+    const textArea = document.createElement('textarea')
+    textArea.value = url
+    textArea.style.position = 'fixed'
+    textArea.style.left = '-999999px'
+    textArea.style.top = '-999999px'
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    try {
+      document.execCommand('copy')
+      textArea.remove()
+      return 'copied'
+    } catch {
+      textArea.remove()
+    }
+  }
+
   throw new Error('Sharing is not supported on this device/browser.')
 }
-

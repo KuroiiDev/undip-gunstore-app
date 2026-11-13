@@ -1,5 +1,6 @@
 const GUNS = [
   {
+    id: 'glock-17',
     name: 'Glock 17',
     type: 'Pistol',
     caliber: '9mm',
@@ -9,6 +10,7 @@ const GUNS = [
       'The duty pistol everything else is measured against. Polymer frame, 17-round magazine, striker-fired trigger. Safe, boring, and it always goes bang.',
   },
   {
+    id: 'ak-47',
     name: 'AK-47',
     type: 'Rifle',
     caliber: '7.62mm',
@@ -18,6 +20,7 @@ const GUNS = [
       'Gas-operated, loose tolerances, and famously indifferent to mud. Seven decades of service and still the benchmark for a rifle that will not quit.',
   },
   {
+    id: 'remington-870',
     name: 'Remington 870',
     type: 'Shotgun',
     caliber: '12 Gauge',
@@ -27,6 +30,7 @@ const GUNS = [
       'Pump-action workhorse. Five shells in the tube, a receiver that has taken more abuse than most trucks, and a sound that ends arguments.',
   },
   {
+    id: 'ar-15',
     name: 'AR-15',
     type: 'Rifle',
     caliber: '5.56mm',
@@ -36,6 +40,7 @@ const GUNS = [
       'Light-recoiling, endlessly modular, and accurate well past the range most shooters can hold. The platform you can rebuild with one tool.',
   },
   {
+    id: 'desert-eagle',
     name: 'Desert Eagle',
     type: 'Pistol',
     caliber: '.50 AE',
@@ -45,6 +50,7 @@ const GUNS = [
       'Gas-operated hand cannon. Three and a half pounds of chromed steel that fires a round most pistols would refuse. Subtle it is not.',
   },
   {
+    id: 'mossberg-500',
     name: 'Mossberg 500',
     type: 'Shotgun',
     caliber: '12 Gauge',

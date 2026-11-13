@@ -1,11 +1,7 @@
-import { useState, useRef, useEffect } from 'react'
 import { Share2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { shareGun } from '../../utils/shareLink'
 
-/**
- * Share button with native share or clipboard copy fallback.
- * Hides itself for local items (id starting with 'local-').
- */
 export default function ShareButton({ gun, className, showLabel = false }) {
   const [copied, setCopied] = useState(false)
   const timerRef = useRef(null)
@@ -16,8 +12,7 @@ export default function ShareButton({ gun, className, showLabel = false }) {
     }
   }, [])
 
-  // Hide share button for items without valid database ID or local synthetic IDs
-  if (!gun || gun.id === undefined || gun.id === null || String(gun.id).startsWith('local-')) {
+  if (!gun || (gun.id === undefined && !gun.name)) {
     return null
   }
 
@@ -72,10 +67,9 @@ export default function ShareButton({ gun, className, showLabel = false }) {
             boxShadow: '0 2px 6px rgba(0, 0, 0, 0.25)',
           }}
         >
-          Link disalin
+          Link disalin!
         </span>
       )}
     </div>
   )
 }
-

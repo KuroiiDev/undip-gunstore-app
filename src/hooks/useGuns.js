@@ -1,14 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import GUNS_LOCAL from '../data/guns'
 import gunService from '../services/gunService'
 import { getCache, setCache } from '../utils/queryCache'
 
-// ---------------------------------------------------------------------------
-// useGuns — fetch the paginated / filtered product list from the API.
-//
-// Returns { guns, loading, error, pagination, refetch }.
-// When the API is unreachable the `error` string will be set and `guns`
-// will remain an empty array so the UI can show a proper error state.
-// ---------------------------------------------------------------------------
 
 export function useGuns(params = {}) {
   const [guns, setGuns] = useState([])
@@ -51,8 +45,7 @@ export function useGuns(params = {}) {
     } finally {
       setLoading(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramKey])
+  }, [paramKey, params])
 
   useEffect(() => {
     fetchGuns()
@@ -62,7 +55,7 @@ export function useGuns(params = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// useGunById — fetch a single product by its UUID.
+// useGunById — fetch a single product by its ID or fallback to local static data.
 //
 // Returns { gun, loading, error, refetch }.
 // ---------------------------------------------------------------------------
@@ -77,20 +70,33 @@ export function useGunById(id) {
       setLoading(false)
       return
     }
+
+    // 1. Check local catalog first if matching by ID or name
+    const foundLocal = GUNS_LOCAL.find(
+      (g) => String(g.id) === String(id) || g.name?.toLowerCase() === String(id).toLowerCase()
+    )
+
     try {
       setLoading(true)
       setError(null)
 
       const response = await gunService.getGunById(id)
 
-      if (response.success) {
+      if (response.success && response.data) {
         setGun(response.data)
+      } else if (foundLocal) {
+        setGun(foundLocal)
       } else {
         setError(response.message || 'Product not found.')
       }
     } catch (err) {
-      setError(err.message || 'Failed to load product details.')
-      setGun(null)
+      if (foundLocal) {
+        setGun(foundLocal)
+        setError(null)
+      } else {
+        setError(err.message || 'Failed to load product details.')
+        setGun(null)
+      }
     } finally {
       setLoading(false)
     }
