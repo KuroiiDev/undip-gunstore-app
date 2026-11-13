@@ -1,41 +1,69 @@
 const cache = new Map()
-const TTL_MS = 60 * 1000 // 60 seconds
+const TTL_MS = 5 * 60 * 1000 // 5 minutes
+const STORAGE_PREFIX = 'query_cache:'
 
-/**
- * Retrieve cached data by key.
- * If expired, deletes the cache entry and returns null.
- */
 export function getCache(key) {
-  if (!cache.has(key)) return null
-
-  const entry = cache.get(key)
   const now = Date.now()
 
-  if (now > entry.expiry) {
+  // 1. Memory cache check
+  if (cache.has(key)) {
+    const entry = cache.get(key)
+    if (now <= entry.expiry) {
+      return entry.data
+    }
     cache.delete(key)
-    return null
   }
 
-  return entry.data
+  // 2. Persistent storage fallback
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const raw = window.sessionStorage.getItem(STORAGE_PREFIX + key)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (now <= parsed.expiry) {
+          cache.set(key, parsed)
+          return parsed.data
+        }
+        window.sessionStorage.removeItem(STORAGE_PREFIX + key)
+      }
+    } catch {
+      // Storage unavailable or disabled
+    }
+  }
+
+  return null
 }
 
-/**
- * Store data in cache with a 60-second TTL.
- */
-export function setCache(key, data) {
-  cache.set(key, {
+export function setCache(key, data, customTtl = TTL_MS) {
+  const entry = {
     data,
-    expiry: Date.now() + TTL_MS,
-  })
+    expiry: Date.now() + customTtl,
+  }
+
+  cache.set(key, entry)
+
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      window.sessionStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(entry))
+    } catch {
+      // Storage full or quota exceeded
+    }
+  }
 }
 
-/**
- * Clear cache entries. If prefix is provided, removes all keys starting with prefix.
- * If prefix is empty string (default), removes all entries.
- */
 export function clearCache(prefix = '') {
   if (!prefix) {
     cache.clear()
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      try {
+        const keys = Object.keys(window.sessionStorage)
+        for (const k of keys) {
+          if (k.startsWith(STORAGE_PREFIX)) {
+            window.sessionStorage.removeItem(k)
+          }
+        }
+      } catch {}
+    }
     return
   }
 
@@ -44,5 +72,15 @@ export function clearCache(prefix = '') {
       cache.delete(key)
     }
   }
-}
 
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const keys = Object.keys(window.sessionStorage)
+      for (const k of keys) {
+        if (k.startsWith(STORAGE_PREFIX + prefix)) {
+          window.sessionStorage.removeItem(k)
+        }
+      }
+    } catch {}
+  }
+}

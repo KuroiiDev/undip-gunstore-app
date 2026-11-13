@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import reviewService from '../services/reviewService'
+import { getCache, setCache, clearCache } from '../utils/queryCache'
 
 // ---------------------------------------------------------------------------
 // useReviews — fetch reviews for a specific product.
@@ -15,6 +16,16 @@ export function useReviews(gunId) {
       setLoading(false)
       return
     }
+
+    const key = `reviews:${gunId}`
+    const cached = getCache(key)
+    if (cached) {
+      setReviews(cached)
+      setError(null)
+      setLoading(false)
+      return
+    }
+
     try {
       setLoading(true)
       setError(null)
@@ -22,7 +33,9 @@ export function useReviews(gunId) {
       const response = await reviewService.getReviews(gunId)
 
       if (response.success) {
-        setReviews(response.data || [])
+        const data = response.data || []
+        setReviews(data)
+        setCache(key, data)
       } else {
         setError(response.message || 'Failed to fetch reviews.')
       }
@@ -59,6 +72,7 @@ export function useCreateReview() {
       const response = await reviewService.createReview(gunId, reviewData)
 
       if (response.success) {
+        clearCache(`reviews:${gunId}`)
         setSuccess(true)
         return response.data
       } else {

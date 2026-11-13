@@ -3,7 +3,6 @@ import GUNS_LOCAL from '../data/guns'
 import gunService from '../services/gunService'
 import { getCache, setCache } from '../utils/queryCache'
 
-
 export function useGuns(params = {}) {
   const [guns, setGuns] = useState([])
   const [loading, setLoading] = useState(true)
@@ -56,8 +55,6 @@ export function useGuns(params = {}) {
 
 // ---------------------------------------------------------------------------
 // useGunById — fetch a single product by its ID or fallback to local static data.
-//
-// Returns { gun, loading, error, refetch }.
 // ---------------------------------------------------------------------------
 
 export function useGunById(id) {
@@ -71,7 +68,15 @@ export function useGunById(id) {
       return
     }
 
-    // 1. Check local catalog first if matching by ID or name
+    const key = `gun:${id}`
+    const cached = getCache(key)
+    if (cached) {
+      setGun(cached)
+      setError(null)
+      setLoading(false)
+      return
+    }
+
     const foundLocal = GUNS_LOCAL.find(
       (g) => String(g.id) === String(id) || g.name?.toLowerCase() === String(id).toLowerCase()
     )
@@ -84,6 +89,7 @@ export function useGunById(id) {
 
       if (response.success && response.data) {
         setGun(response.data)
+        setCache(key, response.data)
       } else if (foundLocal) {
         setGun(foundLocal)
       } else {
