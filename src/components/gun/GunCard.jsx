@@ -1,19 +1,11 @@
 import FavoriteButton from '../common/FavoriteButton'
 import ShareButton from '../common/ShareButton'
 import LazyImage from '../common/LazyImage'
+import { Archive } from 'lucide-react'
 import { useInView } from '../../hooks/useInView'
 import { formatPrice, truncate } from '../../utils/helpers'
 
-/**
- * Product card used in the catalog grid.
- *
- * @param {Object}   props
- * @param {Object}   props.gun       — product data
- * @param {Function} props.onSelect  — called with the gun when clicked
- * @param {Function} [props.onEdit]  — called when Edit is clicked (admin)
- * @param {Function} [props.onDelete]— called when Delete is clicked (admin)
- */
-export default function GunCard({ gun, onSelect, onEdit, onDelete }) {
+export default function GunCard({ gun, onSelect, onEdit, onDelete, onArchive }) {
   const imgSrc = gun.image_url || gun.image || '/guns/pistol.svg'
   const category = gun.type || gun.category || '—'
   const caliber = gun.caliber || gun.difficulty || ''
@@ -56,6 +48,18 @@ export default function GunCard({ gun, onSelect, onEdit, onDelete }) {
           <div className="card-actions">
             <FavoriteButton gunId={gun.id || gun.name} />
             <ShareButton gun={gun} />
+
+            {onArchive && (
+              <button
+                type="button"
+                className="card-act-btn"
+                onClick={(e) => { e.stopPropagation(); onArchive(gun) }}
+                aria-label={`Archive ${gun.name}`}
+                title="Archive"
+              >
+                <Archive size={14} />
+              </button>
+            )}
 
             {onEdit && (
               <button

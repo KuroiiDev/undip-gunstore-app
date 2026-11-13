@@ -17,6 +17,8 @@ import {
   Phone,
   Clock,
   Info,
+  Archive,
+  RotateCcw,
 } from 'lucide-react'
 import userService from '../services/userService'
 import { useFavorites } from '../hooks/useFavorites'
@@ -27,6 +29,11 @@ import {
   formatDraftTime,
   getDraftTimestamp,
 } from '../utils/draftStorage'
+import {
+  getArchivedGuns,
+  restoreGun,
+  permanentlyDeleteGun,
+} from '../utils/archiveStorage'
 
 const members = [
   { name: 'Maitsam Kadzim', nim: '21120124140161' },
@@ -46,6 +53,7 @@ export default function ProfilePage({ onReplaySplash, onNavigate }) {
 
   const { favorites } = useFavorites()
   const [drafts, setDrafts] = useState([])
+  const [archives, setArchives] = useState([])
 
   const loadDraftsList = () => {
     try {
@@ -68,8 +76,19 @@ export default function ProfilePage({ onReplaySplash, onNavigate }) {
     }
   }
 
+  const loadArchivesList = () => {
+    setArchives(getArchivedGuns())
+  }
+
   useEffect(() => {
     loadDraftsList()
+    loadArchivesList()
+
+    const handleArchiveUpdate = () => {
+      loadArchivesList()
+    }
+    window.addEventListener('armory_archive_updated', handleArchiveUpdate)
+    return () => window.removeEventListener('armory_archive_updated', handleArchiveUpdate)
   }, [])
 
   const handleCopyId = () => {
@@ -143,13 +162,31 @@ export default function ProfilePage({ onReplaySplash, onNavigate }) {
     }
   }
 
+  const handleRestoreArchive = (item, e) => {
+    e.stopPropagation()
+    restoreGun(item.id)
+    loadArchivesList()
+    setFeedback(`"${item.name}" berhasil dipulihkan ke katalog.`)
+    setTimeout(() => setFeedback(''), 3000)
+  }
+
+  const handlePermanentDeleteArchive = (item, e) => {
+    e.stopPropagation()
+    if (window.confirm(`Hapus permanen "${item.name}" dari arsip?`)) {
+      permanentlyDeleteGun(item.id)
+      loadArchivesList()
+      setFeedback(`"${item.name}" dihapus secara permanen.`)
+      setTimeout(() => setFeedback(''), 3000)
+    }
+  }
+
   return (
     <div className="profile-page">
       <section className="masthead" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 className="display">Operator Profile</h1>
           <p className="lede">
-            Operator credentials, procurement statistics, drafts, and armory information.
+            Operator credentials, procurement statistics, drafts, arsip katalog, and armory information.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
@@ -235,19 +272,86 @@ export default function ProfilePage({ onReplaySplash, onNavigate }) {
         </div>
 
         {/* Stats Grid */}
-        <div className="profile-stats">
+        <div className="profile-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
           <div className="stat-item">
             <Heart size={20} className="stat-icon" stroke="var(--brass)" />
             <div className="stat-val">{favorites.length}</div>
-            <div className="stat-label">Procurement Favorites</div>
+            <div className="stat-label">Favorites</div>
           </div>
           <div className="stat-item">
             <FileText size={20} className="stat-icon" stroke="var(--steel)" />
             <div className="stat-val">{drafts.length}</div>
-            <div className="stat-label">Saved Offline Drafts</div>
+            <div className="stat-label">Drafts</div>
+          </div>
+          <div className="stat-item">
+            <Archive size={20} className="stat-icon" stroke="var(--brass)" />
+            <div className="stat-val">{archives.length}</div>
+            <div className="stat-label">Arsip Katalog</div>
           </div>
         </div>
       </div>
+
+      {/* SECTION: Catalog Archives */}
+      <section className="profile-section-card" style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '4px', padding: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Archive size={20} stroke="var(--brass)" />
+            <h2 className="section-title" style={{ margin: 0 }}>Arsip Katalog</h2>
+          </div>
+          <span className="count">{archives.length} item</span>
+        </div>
+
+        {archives.length === 0 ? (
+          <div style={{ padding: '24px', textAlign: 'center', background: 'var(--paper)', borderRadius: '4px', color: 'var(--steel)' }}>
+            <p style={{ margin: 0 }}>Belum ada katalog yang diarsipkan.</p>
+          </div>
+        ) : (
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {archives.map((item) => (
+              <li
+                key={item.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px 16px',
+                  border: '1px solid var(--line)',
+                  borderRadius: '4px',
+                  background: 'var(--paper)',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <strong style={{ fontSize: '1rem' }}>{item.name}</strong>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--steel)' }}>
+                    {item.type || item.category || 'Hardware'} {item.caliber ? `• ${item.caliber}` : ''} {item.price ? `• $${item.price}` : ''}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn--outline btn--sm"
+                    onClick={(e) => handleRestoreArchive(item, e)}
+                    title="Pulihkan katalog ke list utama"
+                    style={{ color: 'var(--brass)', borderColor: 'var(--brass)' }}
+                  >
+                    <RotateCcw size={14} /> Pulihkan
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--outline btn--sm"
+                    onClick={(e) => handlePermanentDeleteArchive(item, e)}
+                    title="Hapus permanen dari arsip"
+                    style={{ color: '#c0392b', borderColor: 'rgba(192, 57, 43, 0.3)' }}
+                  >
+                    <Trash2 size={14} /> Hapus Permanen
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {/* SECTION: Catalog Drafts */}
       <section className="profile-section-card" style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '4px', padding: '24px' }}>

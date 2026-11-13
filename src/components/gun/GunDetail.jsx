@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, Star, Send, Loader } from 'lucide-react'
+import { ArrowLeft, Star, Send, Loader, Archive } from 'lucide-react'
 import FavoriteButton from '../common/FavoriteButton'
 import ShareButton from '../common/ShareButton'
 import LazyImage from '../common/LazyImage'
@@ -7,16 +7,7 @@ import { useReviews, useCreateReview } from '../../hooks/useReviews'
 import { getUserIdentifier } from '../../services/userService'
 import { formatPrice, averageRating } from '../../utils/helpers'
 
-/**
- * Full-screen product detail view.
- *
- * @param {Object}   props
- * @param {Object}   props.gun       — product data
- * @param {Function} props.onBack    — return to catalog
- * @param {Function} [props.onEdit]  — navigate to edit page
- * @param {Function} [props.onDelete]— trigger delete flow
- */
-export default function GunDetail({ gun, onBack, onEdit, onDelete }) {
+export default function GunDetail({ gun, onBack, onEdit, onDelete, onArchive }) {
   const imgSrc = gun.image_url || gun.image || '/guns/pistol.svg'
   const category = gun.type || gun.category || '—'
   const caliber = gun.caliber || gun.difficulty || ''
@@ -87,6 +78,11 @@ export default function GunDetail({ gun, onBack, onEdit, onDelete }) {
           <div className="detail-actions">
             <FavoriteButton gunId={gun.id || gun.name} />
             <ShareButton gun={gun} className="btn btn--outline" showLabel />
+            {onArchive && (
+              <button type="button" className="btn btn--outline" onClick={() => onArchive(gun)}>
+                <Archive size={15} /> Archive
+              </button>
+            )}
             {onEdit && (
               <button type="button" className="btn btn--outline" onClick={() => onEdit(gun)}>
                 Edit
