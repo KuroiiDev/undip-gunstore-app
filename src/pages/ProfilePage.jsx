@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Shield,
   Copy,
@@ -8,42 +8,69 @@ import {
   FileText,
   Camera,
   Play,
+  Edit3,
+  X,
+  Trash2,
+  ExternalLink,
+  Users,
+  MapPin,
+  Phone,
+  Clock,
+  Info,
 } from 'lucide-react'
 import userService from '../services/userService'
 import { useFavorites } from '../hooks/useFavorites'
+import {
+  getAllDraftIds,
+  loadDraft,
+  deleteDraft,
+  formatDraftTime,
+  getDraftTimestamp,
+} from '../utils/draftStorage'
 
-/**
- * Get count of active drafts in localStorage
- */
-const getActiveDraftCount = () => {
-  try {
-    let count = 0
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (key && (key.startsWith('bore_barrel_draft_') || key.startsWith('recipe_draft_'))) {
-        count++
-      }
-    }
-    return count
-  } catch {
-    return 0
-  }
-}
+const members = [
+  { name: 'Maitsam Kadzim', nim: '21120124140161' },
+  { name: 'Rafi Nurulhuda', nim: '21120124130053' },
+  { name: 'Gotara Parasdya Abimanyu', nim: '21120124140157' },
+  { name: 'Faiz Alif Rahmawan', nim: '21120124130063' },
+]
 
-/**
- * ProfilePage — User identity and Armory settings.
- * Manages operator profile, identifier, favorites stats, and draft storage.
- */
-export default function ProfilePage({ onReplaySplash }) {
+export default function ProfilePage({ onReplaySplash, onNavigate }) {
   const [profile, setProfile] = useState(() => userService.getUserProfile())
   const [username, setUsername] = useState(profile.username || 'Shooter')
   const [bio, setBio] = useState(profile.bio || '')
   const [avatar, setAvatar] = useState(profile.avatar || null)
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState('')
+  const [showEditModal, setShowEditModal] = useState(false)
 
   const { favorites } = useFavorites()
-  const [draftCount] = useState(getActiveDraftCount)
+  const [drafts, setDrafts] = useState([])
+
+  const loadDraftsList = () => {
+    try {
+      const ids = getAllDraftIds()
+      const list = ids.map((id) => {
+        const data = loadDraft(id)
+        const ts = getDraftTimestamp(id) || data?.savedAt
+        return {
+          id,
+          name: data?.name || (id === 'create' ? 'New Hardware Draft' : `Hardware #${id}`),
+          type: data?.type || data?.category || 'Hardware',
+          price: data?.price ?? data?.cook_time ?? 0,
+          savedAt: ts,
+          data,
+        }
+      })
+      setDrafts(list)
+    } catch {
+      setDrafts([])
+    }
+  }
+
+  useEffect(() => {
+    loadDraftsList()
+  }, [])
 
   const handleCopyId = () => {
     if (profile.userId) {
@@ -74,6 +101,12 @@ export default function ProfilePage({ onReplaySplash }) {
     reader.readAsDataURL(file)
   }
 
+  const handleOpenEdit = () => {
+    setUsername(profile.username || 'Shooter')
+    setBio(profile.bio || '')
+    setShowEditModal(true)
+  }
+
   const handleSaveProfile = (e) => {
     e.preventDefault()
     const updated = {
@@ -85,10 +118,28 @@ export default function ProfilePage({ onReplaySplash }) {
     const result = userService.saveUserProfile(updated)
     if (result.success) {
       setProfile(result.data)
+      setShowEditModal(false)
       setFeedback('Profile successfully updated.')
       setTimeout(() => setFeedback(''), 3000)
     } else {
       setFeedback('Failed to save profile.')
+    }
+  }
+
+  const handleDeleteDraft = (draftId, e) => {
+    e.stopPropagation()
+    deleteDraft(draftId)
+    loadDraftsList()
+    setFeedback('Draft deleted.')
+    setTimeout(() => setFeedback(''), 3000)
+  }
+
+  const handleOpenDraft = (draft) => {
+    if (!onNavigate) return
+    if (draft.id === 'create') {
+      onNavigate('Create')
+    } else {
+      onNavigate('Edit', { id: draft.id, ...draft.data })
     }
   }
 
@@ -98,19 +149,28 @@ export default function ProfilePage({ onReplaySplash }) {
         <div>
           <h1 className="display">Operator Profile</h1>
           <p className="lede">
-            Operator credentials, procurement statistics, and armorer details.
+            Operator credentials, procurement statistics, drafts, and armory information.
           </p>
         </div>
-        {onReplaySplash && (
+        <div style={{ display: 'flex', gap: '8px' }}>
           <button
             type="button"
-            className="btn btn--outline btn--sm"
-            onClick={onReplaySplash}
-            title="Replay introductory splash animation"
+            className="btn btn--primary btn--sm"
+            onClick={handleOpenEdit}
           >
-            <Play size={14} /> Replay Intro
+            <Edit3 size={14} /> Edit Profile
           </button>
-        )}
+          {onReplaySplash && (
+            <button
+              type="button"
+              className="btn btn--outline btn--sm"
+              onClick={onReplaySplash}
+              title="Replay introductory splash animation"
+            >
+              <Play size={14} /> Replay Intro
+            </button>
+          )}
+        </div>
       </section>
 
       {feedback && (
@@ -121,41 +181,57 @@ export default function ProfilePage({ onReplaySplash }) {
 
       {/* Operator Card */}
       <div className="profile-card">
-        <div className="profile-card-top">
-          <div className="avatar-wrap">
-            {avatar ? (
-              <img src={avatar} alt={profile.username} className="avatar-img" />
-            ) : (
-              <div className="avatar-placeholder">
-                <Shield size={36} stroke="var(--brass)" />
-              </div>
-            )}
-            <label htmlFor="avatar-file-input" className="avatar-upload-btn" title="Upload avatar">
-              <Camera size={14} />
-              <input
-                id="avatar-file-input"
-                type="file"
-                accept="image/*"
-                onChange={handleAvatarChange}
-                className="hidden-file-input"
-              />
-            </label>
-          </div>
+        <div className="profile-card-top" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            <div className="avatar-wrap">
+              {avatar ? (
+                <img src={avatar} alt={profile.username} className="avatar-img" />
+              ) : (
+                <div className="avatar-placeholder">
+                  <Shield size={36} stroke="var(--brass)" />
+                </div>
+              )}
+              <label htmlFor="avatar-file-input" className="avatar-upload-btn" title="Upload avatar">
+                <Camera size={14} />
+                <input
+                  id="avatar-file-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarChange}
+                  className="hidden-file-input"
+                />
+              </label>
+            </div>
 
-          <div className="profile-identity">
-            <h2 className="display">{profile.username || 'Shooter'}</h2>
-            <div className="profile-id-row">
-              <span className="mono-badge">{profile.userId}</span>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={handleCopyId}
-                title="Copy User ID to clipboard"
-              >
-                {copied ? <Check size={14} color="var(--brass)" /> : <Copy size={14} />}
-              </button>
+            <div className="profile-identity">
+              <h2 className="display">{profile.username || 'Shooter'}</h2>
+              <div className="profile-id-row">
+                <span className="mono-badge">{profile.userId}</span>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={handleCopyId}
+                  title="Copy User ID to clipboard"
+                >
+                  {copied ? <Check size={14} color="var(--brass)" /> : <Copy size={14} />}
+                </button>
+              </div>
+              {profile.bio && (
+                <p style={{ marginTop: '8px', color: 'var(--steel)', fontSize: '0.9rem', maxWidth: '500px' }}>
+                  {profile.bio}
+                </p>
+              )}
             </div>
           </div>
+
+          <button
+            type="button"
+            className="btn btn--outline btn--sm"
+            onClick={handleOpenEdit}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            <Edit3 size={14} /> Edit Profil
+          </button>
         </div>
 
         {/* Stats Grid */}
@@ -167,48 +243,226 @@ export default function ProfilePage({ onReplaySplash }) {
           </div>
           <div className="stat-item">
             <FileText size={20} className="stat-icon" stroke="var(--steel)" />
-            <div className="stat-val">{draftCount}</div>
+            <div className="stat-val">{drafts.length}</div>
             <div className="stat-label">Saved Offline Drafts</div>
           </div>
         </div>
       </div>
 
-      {/* Profile Form */}
-      <form onSubmit={handleSaveProfile} className="profile-form">
-        <h3 className="section-title">Armorer Details</h3>
-
-        <div className="form-group">
-          <label htmlFor="prof-name" className="form-label">
-            Callsign / Operator Alias
-          </label>
-          <input
-            id="prof-name"
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="e.g. Operator Delta, Master Gunsmith"
-            className="form-input"
-          />
+      {/* SECTION: Catalog Drafts */}
+      <section className="profile-section-card" style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '4px', padding: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <FileText size={20} stroke="var(--brass)" />
+            <h2 className="section-title" style={{ margin: 0 }}>List Katalog Draft</h2>
+          </div>
+          <span className="count">{drafts.length} draft</span>
         </div>
 
-        <div className="form-group">
-          <label htmlFor="prof-bio" className="form-label">
-            Armory Notes / Station Bio
-          </label>
-          <textarea
-            id="prof-bio"
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
-            placeholder="Qualifications, preferred calibers, unit assignment..."
-            rows={3}
-            className="form-textarea"
-          />
-        </div>
+        {drafts.length === 0 ? (
+          <div style={{ padding: '24px', textAlign: 'center', background: 'var(--paper)', borderRadius: '4px', color: 'var(--steel)' }}>
+            <p style={{ margin: 0 }}>Belum ada katalog yang disimpan di draft.</p>
+          </div>
+        ) : (
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {drafts.map((draft) => (
+              <li
+                key={draft.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px 16px',
+                  border: '1px solid var(--line)',
+                  borderRadius: '4px',
+                  background: 'var(--paper)',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <strong style={{ fontSize: '1rem' }}>{draft.name}</strong>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--steel)' }}>
+                    {draft.type} {draft.price > 0 && `• $${draft.price}`} • Disimpan {formatDraftTime(draft.savedAt)}
+                  </span>
+                </div>
 
-        <button type="submit" className="btn btn--primary">
-          <Save size={16} /> Save Armorer Profile
-        </button>
-      </form>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn--outline btn--sm"
+                    onClick={() => handleOpenDraft(draft)}
+                    title="Lanjutkan edit draft ini"
+                  >
+                    <ExternalLink size={14} /> Buka
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--outline btn--sm"
+                    onClick={(e) => handleDeleteDraft(draft.id, e)}
+                    title="Hapus draft"
+                    style={{ color: '#c0392b', borderColor: 'rgba(192, 57, 43, 0.3)' }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* SECTION: About Us */}
+      <section className="profile-section-card" style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '4px', padding: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <Info size={20} stroke="var(--brass)" />
+          <h2 className="section-title" style={{ margin: 0 }}>About — Bore &amp; Barrel</h2>
+        </div>
+        <p style={{ color: 'var(--steel)', lineHeight: 1.6, marginTop: 0 }}>
+          Bore &amp; Barrel sells a short, honest list of firearms. Each piece is priced from the bench — no markup theatre, no filler.
+        </p>
+
+        <div style={{ background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: '8px', padding: '18px', marginTop: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+            <Users size={18} stroke="var(--brass)" />
+            <strong style={{ fontSize: '1.1rem' }}>Kelompok 13 — Shift 02</strong>
+          </div>
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+            {members.map((m) => (
+              <li
+                key={m.nim}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '8px 12px',
+                  background: '#fff',
+                  border: '1px solid var(--line)',
+                  borderRadius: '4px',
+                }}
+              >
+                <span
+                  style={{
+                    width: '30px',
+                    height: '30px',
+                    borderRadius: '50%',
+                    background: 'var(--ink)',
+                    color: '#fff',
+                    display: 'grid',
+                    placeItems: 'center',
+                    fontWeight: 'bold',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  {m.name.charAt(0)}
+                </span>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <strong style={{ fontSize: '0.9rem' }}>{m.name}</strong>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--steel)', fontFamily: 'monospace' }}>{m.nim}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* SECTION: Contact */}
+      <section className="profile-section-card" style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: '4px', padding: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <MapPin size={20} stroke="var(--brass)" />
+          <h2 className="section-title" style={{ margin: 0 }}>Contact &amp; Armory Location</h2>
+        </div>
+        <p style={{ color: 'var(--steel)', lineHeight: 1.6, marginTop: 0 }}>
+          Come by the shop for hardware maintenance, inspections, or consultations.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginTop: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px', background: 'var(--paper)', borderRadius: '4px', border: '1px solid var(--line)' }}>
+            <MapPin size={18} stroke="var(--brass)" style={{ marginTop: '2px', flexShrink: 0 }} />
+            <div>
+              <strong style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: 'var(--steel)' }}>Address</strong>
+              <div style={{ fontSize: '0.95rem', fontWeight: 600 }}>123 Range Road</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px', background: 'var(--paper)', borderRadius: '4px', border: '1px solid var(--line)' }}>
+            <Clock size={18} stroke="var(--brass)" style={{ marginTop: '2px', flexShrink: 0 }} />
+            <div>
+              <strong style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: 'var(--steel)' }}>Operating Hours</strong>
+              <div style={{ fontSize: '0.95rem', fontWeight: 600 }}>Tue - Sat: 10:00 - 18:00</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px', background: 'var(--paper)', borderRadius: '4px', border: '1px solid var(--line)' }}>
+            <Phone size={18} stroke="var(--brass)" style={{ marginTop: '2px', flexShrink: 0 }} />
+            <div>
+              <strong style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: 'var(--steel)' }}>Telephone</strong>
+              <div style={{ fontSize: '0.95rem', fontWeight: 600 }}>(555) 010-0100</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* POP-UP MODAL: Edit Profile */}
+      {showEditModal && (
+        <div className="modal-backdrop" onClick={() => setShowEditModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 className="modal__title" style={{ margin: 0 }}>Edit Armorer Profile</h2>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setShowEditModal(false)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="form-group">
+                <label htmlFor="modal-prof-name" className="form-label">
+                  Callsign / Operator Alias
+                </label>
+                <input
+                  id="modal-prof-name"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="e.g. Operator Delta, Master Gunsmith"
+                  className="form-input"
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="modal-prof-bio" className="form-label">
+                  Armory Notes / Station Bio
+                </label>
+                <textarea
+                  id="modal-prof-bio"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  placeholder="Qualifications, preferred calibers, unit assignment..."
+                  rows={4}
+                  className="form-textarea"
+                />
+              </div>
+
+              <div className="modal__actions" style={{ marginTop: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn--outline"
+                  onClick={() => setShowEditModal(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn--primary">
+                  <Save size={16} /> Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

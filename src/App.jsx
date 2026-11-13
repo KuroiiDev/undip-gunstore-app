@@ -12,8 +12,6 @@ const FavoritesPage = React.lazy(() => import('./pages/FavoritesPage.jsx'))
 const ProfilePage = React.lazy(() => import('./pages/ProfilePage.jsx'))
 const CreateGunPage = React.lazy(() => import('./pages/CreateGunPage.jsx'))
 const EditGunPage = React.lazy(() => import('./pages/EditGunPage.jsx'))
-const About = React.lazy(() => import('./pages/About.jsx'))
-const Contact = React.lazy(() => import('./pages/Contact.jsx'))
 const GunDetail = React.lazy(() => import('./components/gun/GunDetail.jsx'))
 
 function App() {
@@ -115,10 +113,11 @@ function App() {
                 />
               )}
               {tab === 'Profile' && (
-                <ProfilePage onReplaySplash={() => setShowSplash(true)} />
+                <ProfilePage
+                  onReplaySplash={() => setShowSplash(true)}
+                  onNavigate={handleNavigate}
+                />
               )}
-              {tab === 'About' && <About />}
-              {tab === 'Contact' && <Contact />}
             </>
           )}
         </Suspense>
