@@ -1,11 +1,33 @@
-import { useState } from 'react'
-import { ArrowLeft, Star, Send, Loader, Archive } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import {
+  ArrowLeft,
+  Star,
+  Send,
+  Loader,
+  Archive,
+  Edit2,
+  Trash2,
+  ThumbsUp,
+  ThumbsDown,
+  Check,
+  X,
+} from 'lucide-react'
 import FavoriteButton from '../common/FavoriteButton'
 import ShareButton from '../common/ShareButton'
 import LazyImage from '../common/LazyImage'
-import { useReviews, useCreateReview } from '../../hooks/useReviews'
+import {
+  useReviews,
+  useCreateReview,
+  useUpdateReview,
+  useDeleteReview,
+} from '../../hooks/useReviews'
 import { getUserIdentifier } from '../../services/userService'
 import { formatPrice, averageRating } from '../../utils/helpers'
+import {
+  getReactionStats,
+  getUserReaction,
+  toggleReaction,
+} from '../../utils/reviewReactions'
 
 export default function GunDetail({ gun, onBack, onEdit, onDelete, onArchive }) {
   const imgSrc = gun.image_url || gun.image || '/guns/pistol.svg'
@@ -13,13 +35,34 @@ export default function GunDetail({ gun, onBack, onEdit, onDelete, onArchive }) 
   const caliber = gun.caliber || gun.difficulty || ''
   const price = gun.price ?? gun.cook_time ?? 0
 
-  // Reviews
+  const currentUserId = getUserIdentifier()
+
+  // Reviews hook
   const { reviews, loading: reviewsLoading, refetch: refetchReviews } = useReviews(gun.id)
   const { createReview, loading: submitting } = useCreateReview()
+  const { updateReview, loading: updating } = useUpdateReview()
+  const { deleteReview, loading: deletingReview } = useDeleteReview()
+
   const [rating, setRating] = useState(5)
   const [comment, setComment] = useState('')
   const [reviewError, setReviewError] = useState('')
   const [reviewSuccess, setReviewSuccess] = useState('')
+
+  // Edit review state
+  const [editingReviewId, setEditingReviewId] = useState(null)
+  const [editRating, setEditRating] = useState(5)
+  const [editComment, setEditComment] = useState('')
+
+  // Reactions state trigger
+  const [, setReactionTick] = useState(0)
+
+  useEffect(() => {
+    const handleReactionsUpdated = () => {
+      setReactionTick((t) => t + 1)
+    }
+    window.addEventListener('armory_review_reactions_updated', handleReactionsUpdated)
+    return () => window.removeEventListener('armory_review_reactions_updated', handleReactionsUpdated)
+  }, [])
 
   const avgRating = gun.average_rating || averageRating(reviews)
   const reviewCount = gun.review_count ?? reviews.length
@@ -35,7 +78,8 @@ export default function GunDetail({ gun, onBack, onEdit, onDelete, onArchive }) 
     }
 
     const result = await createReview(gun.id, {
-      user_identifier: getUserIdentifier(),
+      user_id: currentUserId,
+      user_identifier: currentUserId,
       rating,
       comment: comment.trim(),
     })
@@ -48,6 +92,55 @@ export default function GunDetail({ gun, onBack, onEdit, onDelete, onArchive }) 
     } else {
       setReviewError('Could not submit review. The server may be unavailable.')
     }
+  }
+
+  const handleStartEdit = (rev) => {
+    setEditingReviewId(rev.id)
+    setEditRating(rev.rating || 5)
+    setEditComment(rev.comment || '')
+  }
+
+  const handleCancelEdit = () => {
+    setEditingReviewId(null)
+    setEditRating(5)
+    setEditComment('')
+  }
+
+  const handleSaveEdit = async (reviewId) => {
+    const res = await updateReview(gun.id, reviewId, {
+      rating: editRating,
+      comment: editComment.trim(),
+    })
+    if (res) {
+      setEditingReviewId(null)
+      refetchReviews()
+    }
+  }
+
+  const handleDeleteReview = async (reviewId) => {
+    if (window.confirm('Delete this review?')) {
+      const ok = await deleteReview(gun.id, reviewId)
+      if (ok) {
+        refetchReviews()
+      }
+    }
+  }
+
+  const handleReaction = (reviewId, type) => {
+    toggleReaction(reviewId, currentUserId, type)
+    setReactionTick((t) => t + 1)
+  }
+
+  const isOwnReview = (rev) => {
+    if (!currentUserId) return false
+    if (rev.user_id && String(rev.user_id) === String(currentUserId)) return true
+    if (rev.user_identifier && (
+      rev.user_identifier === currentUserId ||
+      rev.user_identifier === `Operator ${String(currentUserId).substring(0, 8)}`
+    )) {
+      return true
+    }
+    return false
   }
 
   return (
@@ -103,7 +196,7 @@ export default function GunDetail({ gun, onBack, onEdit, onDelete, onArchive }) 
         <p>{gun.description || 'No description available.'}</p>
       </section>
 
-      {/* Specifications (from ingredients / steps if present) */}
+      {/* Specifications */}
       {gun.ingredients && gun.ingredients.length > 0 && (
         <section className="detail-section">
           <h2>Specifications</h2>
@@ -189,24 +282,189 @@ export default function GunDetail({ gun, onBack, onEdit, onDelete, onArchive }) 
           <p className="detail-loading">Loading reviews…</p>
         ) : reviews.length > 0 ? (
           <ul className="review-list">
-            {reviews.map((rev) => (
-              <li key={rev.id} className="review-item">
-                <div className="review-head">
-                  <span className="review-user">{rev.user_identifier || 'Anonymous'}</span>
-                  <span className="review-stars-display">
-                    {Array.from({ length: 5 }, (_, i) => (
-                      <Star
-                        key={i}
-                        size={14}
-                        fill={i < rev.rating ? 'var(--brass)' : 'none'}
-                        stroke={i < rev.rating ? 'var(--brass)' : 'var(--line)'}
+            {reviews.map((rev) => {
+              const isOwn = isOwnReview(rev)
+              const isEditing = editingReviewId === rev.id
+              const reactionStats = getReactionStats(rev.id)
+              const userReaction = getUserReaction(rev.id, currentUserId)
+
+              return (
+                <li key={rev.id} className="review-item">
+                  <div className="review-head">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="review-user">{rev.user_identifier || 'Anonymous'}</span>
+                      {isOwn && (
+                        <span
+                          style={{
+                            fontSize: '0.72rem',
+                            padding: '2px 6px',
+                            background: 'var(--paper)',
+                            border: '1px solid var(--line)',
+                            borderRadius: '4px',
+                            color: 'var(--steel)',
+                            fontWeight: 600,
+                          }}
+                        >
+                          You
+                        </span>
+                      )}
+                    </div>
+
+                    {!isEditing && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span className="review-stars-display">
+                          {Array.from({ length: 5 }, (_, i) => (
+                            <Star
+                              key={i}
+                              size={14}
+                              fill={i < rev.rating ? 'var(--brass)' : 'none'}
+                              stroke={i < rev.rating ? 'var(--brass)' : 'var(--line)'}
+                            />
+                          ))}
+                        </span>
+
+                        {isOwn && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              onClick={() => handleStartEdit(rev)}
+                              title="Edit review"
+                              style={{ padding: '4px' }}
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              onClick={() => handleDeleteReview(rev.id)}
+                              title="Delete review"
+                              disabled={deletingReview}
+                              style={{ padding: '4px', color: '#c0392b' }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Edit mode vs Read mode */}
+                  {isEditing ? (
+                    <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div className="review-stars">
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            className="star-btn"
+                            onClick={() => setEditRating(n)}
+                            aria-label={`${n} star${n > 1 ? 's' : ''}`}
+                          >
+                            <Star
+                              size={18}
+                              fill={n <= editRating ? 'var(--brass)' : 'none'}
+                              stroke={n <= editRating ? 'var(--brass)' : 'var(--steel)'}
+                            />
+                          </button>
+                        ))}
+                      </div>
+
+                      <textarea
+                        className="review-input"
+                        rows={2}
+                        value={editComment}
+                        onChange={(e) => setEditComment(e.target.value)}
+                        placeholder="Edit your review..."
                       />
-                    ))}
-                  </span>
-                </div>
-                {rev.comment && <p className="review-comment">{rev.comment}</p>}
-              </li>
-            ))}
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="btn btn--primary btn--sm"
+                          onClick={() => handleSaveEdit(rev.id)}
+                          disabled={updating}
+                        >
+                          <Check size={14} /> Save
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--outline btn--sm"
+                          onClick={handleCancelEdit}
+                        >
+                          <X size={14} /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {rev.comment && <p className="review-comment">{rev.comment}</p>}
+
+                      {/* Like & Dislike actions */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px' }}>
+                        {!isOwn ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleReaction(rev.id, 'like')}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                background: userReaction === 'like' ? 'rgba(39, 174, 96, 0.12)' : 'transparent',
+                                border: `1px solid ${userReaction === 'like' ? '#27ae60' : 'var(--line)'}`,
+                                color: userReaction === 'like' ? '#27ae60' : 'var(--steel)',
+                                padding: '3px 8px',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                fontWeight: userReaction === 'like' ? 600 : 400,
+                              }}
+                              title="Like review"
+                            >
+                              <ThumbsUp size={13} />
+                              <span>{reactionStats.likeCount}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleReaction(rev.id, 'dislike')}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                background: userReaction === 'dislike' ? 'rgba(192, 57, 43, 0.12)' : 'transparent',
+                                border: `1px solid ${userReaction === 'dislike' ? '#c0392b' : 'var(--line)'}`,
+                                color: userReaction === 'dislike' ? '#c0392b' : 'var(--steel)',
+                                padding: '3px 8px',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                fontWeight: userReaction === 'dislike' ? 600 : 400,
+                              }}
+                              title="Dislike review"
+                            >
+                              <ThumbsDown size={13} />
+                              <span>{reactionStats.dislikeCount}</span>
+                            </button>
+                          </>
+                        ) : (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', fontSize: '0.8rem', color: 'var(--steel)' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <ThumbsUp size={12} /> {reactionStats.likeCount}
+                            </span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <ThumbsDown size={12} /> {reactionStats.dislikeCount}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         ) : (
           <p className="detail-empty">No reviews yet. Be the first!</p>
